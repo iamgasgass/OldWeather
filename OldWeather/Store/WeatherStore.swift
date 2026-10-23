@@ -106,13 +106,13 @@ final class WeatherStore: ObservableObject {
         defaults.set(coordinates, forKey: Keys.coordinates)
     }
 
-    /// Re-publish when a city finishes loading, and store the coordinates it
-    /// resolved so the next launch skips the geocoding.
+    /// Store the coordinates a city resolved so the next launch skips the
+    /// geocoding. Pages observe their own city, so the whole pager is not
+    /// re-rendered when one city loads.
     private func observe(_ city: WeatherCity) {
         cancellables[city.id] = city.objectWillChange
             .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.objectWillChange.send()
                 self?.save()
             }
     }

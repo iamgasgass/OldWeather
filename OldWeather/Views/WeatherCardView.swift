@@ -47,17 +47,33 @@ struct WeatherPageView: View {
                 Spacer().frame(height: 80)
                 WeatherCardView(city: city, onInfo: onInfo)
             }
-            VStack(spacing: 0) {
-                let code = city.currentIconCode
-                if !code.isEmpty {
-                    Spacer().frame(height: 15 + WeatherIcons.offset(code))
-                    Image(WeatherIcons.image(code, mini: false))
-                        .allowsHitTesting(false)
-                }
-                Spacer()
-            }
-            .oldOSAnimationsDisabled()
+            // The big sun / moon / cloud, overlapping the top of the card. It
+            // fades in when the data arrives and cross-fades when day turns to
+            // night, instead of popping.
+            WeatherBigIcon(code: city.currentIconCode)
         }
+    }
+}
+
+/// The big weather icon of a page (OldOS drew it in `WeatherPageView`).
+private struct WeatherBigIcon: View {
+    let code: String
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.clear
+            if !code.isEmpty {
+                Image(WeatherIcons.image(code, mini: false))
+                    .interpolation(.high)
+                    .antialiased(true)
+                    .padding(.top, 15 + WeatherIcons.offset(code))
+                    .id(code)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(.easeInOut(duration: 0.35), value: code)
+        .allowsHitTesting(false)
     }
 }
 
@@ -83,6 +99,9 @@ struct WeatherCardView: View {
                         .frame(height: height * 34 / 750)
                 }
                 .cornerRadius(12)
+                // Rasterised once: the cards slide without re-rendering
+                // every gradient row.
+                .drawingGroup()
                 .oldOSStrokeRoundedRectangle(12, palette.stroke, lineWidth: 4)
                 .padding([.leading, .trailing], 18)
                 .padding([.top, .bottom], 4)

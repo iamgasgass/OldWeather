@@ -128,57 +128,137 @@ struct OldWeatherRootView: View {
     }
 }
 
-/// Replaces SwiftUIPager: one card per page, swiped horizontally with the
-/// UIScrollView paging feel (rubber band at the ends).
+/// Replaces SwiftUIPager with a real paging `UIScrollView`, exactly the
+/// control iOS 6 Weather used: native finger tracking, deceleration, the
+/// rubber band at the first and last card, and the page dots following the
+/// card under the finger.
 struct WeatherPager<Page: View>: View {
     let cities: [WeatherCity]
     @Binding var index: Int
     @ViewBuilder let content: (WeatherCity) -> Page
 
-    @State private var dragOffset: CGFloat = 0
-
     var body: some View {
         GeometryReader { geometry in
-            let width = geometry.size.width
-            HStack(spacing: 0) {
-                ForEach(cities) { city in
-                    content(city)
-                        .frame(width: width, height: geometry.size.height)
-                }
-            }
-            .frame(width: width, height: geometry.size.height, alignment: .leading)
-            .offset(x: -CGFloat(index) * width + dragOffset)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 8)
-                    .onChanged { value in
-                        guard abs(value.translation.width) > abs(value.translation.height) || dragOffset != 0 else { return }
-                        var translation = value.translation.width
-                        let atStart = index == 0 && translation > 0
-                        let atEnd = index == cities.count - 1 && translation < 0
-                        if atStart || atEnd {
-                            translation /= 3
-                        }
-                        dragOffset = translation
-                    }
-                    .onEnded { value in
-                        let predicted = value.predictedEndTranslation.width
-                        var target = index
-                        if dragOffset != 0 {
-                            if predicted < -width / 2 || value.translation.width < -width / 2 {
-                                target += 1
-                            } else if predicted > width / 2 || value.translation.width > width / 2 {
-                                target -= 1
-                            }
-                        }
-                        target = min(max(target, 0), max(cities.count - 1, 0))
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            index = target
-                            dragOffset = 0
-                        }
-                    }
+            WeatherPagingScrollView(
+                pages: cities.map { city in
+                    WeatherPagerPage(id: city.id, view: AnyView(content(city)))
+                },
+                size: geometry.size,
+                index: $index
             )
         }
-        .clipped()
+    }
+}
+
+struct WeatherPagerPage: Identifiable {
+    let id: UUID
+    let view: AnyView
+}
+
+struct WeatherPagingScrollView: UIViewRepresentable {
+    let pages: [WeatherPagerPage]
+    let size: CGSize
+    @Binding var index: Int
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scroll = UIScrollView()
+        scroll.isPagingEnabled = true
+        scroll.bounces = true
+        scroll.alwaysBounceHorizontal = true
+        scroll.alwaysBounceVertical = false
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.showsVerticalScrollIndicator = false
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.delaysContentTouches = false
+        scroll.scrollsToTop = false
+        scroll.backgroundColor = .clear
+        scroll.delegate = context.coordinator
+
+        let host = context.coordinator.host
+        host.view.backgroundColor = .clear
+        if #available(iOS 16.4, *) {
+            host.safeAreaRegions = []
+        }
+        scroll.addSubview(host.view)
+        return scroll
+    }
+
+    func updateUIView(_ scroll: UIScrollView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.parent = self
+        let width = max(size.width, 1)
+        let height = max(size.height, 1)
+
+        coordinator.host.rootView = AnyView(
+            HStack(spacing: 0) {
+                ForEach(pages) { page in
+                    page.view
+                        .frame(width: width, height: height)
+                }
+            }
+            .frame(width: width * CGFloat(max(pages.count, 1)), height: height, alignment: .leading)
+            .ignoresSafeArea()
+        )
+
+        let contentSize = CGSize(width: width * CGFloat(pages.count), height: height)
+        if scroll.contentSize != contentSize {
+            scroll.contentSize = contentSize
+        }
+        let frame = CGRect(origin: .zero, size: CGSize(width: max(contentSize.width, width), height: height))
+        if coordinator.host.view.frame != frame {
+            coordinator.host.view.frame = frame
+        }
+
+        // Follow a page change made elsewhere (dot taps, a deleted city),
+        // never while the finger moves the cards.
+        guard !scroll.isDragging, !scroll.isDecelerating, !pages.isEmpty else { return }
+        let target = CGFloat(min(max(index, 0), pages.count - 1)) * width
+        if abs(scroll.contentOffset.x - target) > 0.5 {
+            let animated = coordinator.laidOut && coordinator.lastWidth == width
+            scroll.setContentOffset(CGPoint(x: target, y: 0), animated: animated)
+        }
+        coordinator.lastWidth = width
+        coordinator.laidOut = true
+    }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        var parent: WeatherPagingScrollView
+        let host = UIHostingController(rootView: AnyView(EmptyView()))
+        var laidOut = false
+        var lastWidth: CGFloat = 0
+
+        init(_ parent: WeatherPagingScrollView) {
+            self.parent = parent
+        }
+
+        /// The dots switch when the next card is more than half visible
+        /// (UIPageControl behaviour).
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard scrollView.isDragging || scrollView.isDecelerating else { return }
+            let width = max(scrollView.bounds.width, 1)
+            let page = Int((scrollView.contentOffset.x / width).rounded())
+            let clamped = min(max(page, 0), max(parent.pages.count - 1, 0))
+            if clamped != parent.index {
+                parent.index = clamped
+            }
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            settle(scrollView)
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            if !decelerate { settle(scrollView) }
+        }
+
+        private func settle(_ scrollView: UIScrollView) {
+            let width = max(scrollView.bounds.width, 1)
+            let page = min(max(Int((scrollView.contentOffset.x / width).rounded()), 0), max(parent.pages.count - 1, 0))
+            if page != parent.index {
+                parent.index = page
+            }
+        }
     }
 }

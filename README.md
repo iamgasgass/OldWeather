@@ -13,9 +13,9 @@ Every screen of OldOS `Weather.swift` is included, with live data from [Open-Met
 
 ### Cards
 
-- One card per city, swiped left and right, with the white **page dots**. Tapping left or right of the dots changes page.
+- One card per city in a real paging scroll view (native finger tracking, deceleration and rubber band, as on iOS 6), with the white **page dots** following the card under the finger. Tapping left or right of the dots changes page.
 - **Day** card in blue and **night** card in plum, chosen from the city's current day or night.
-- The big iOS 6 **weather icon** overlaps the top of the card: sun, partly cloudy, cloudy, rain, thunderstorm, snow, fog, moon.
+- The big iOS 6 **weather icon** overlaps the top of the card: sun, partly cloudy, cloudy, rain, thunderstorm, snow, fog, moon. It fades in when the data arrives and cross-fades between sun and moon.
 - Header with the **city**, **H / L** and the big **temperature**.
 - **6-day forecast** (today first) with the weekday, the small icon, and the high and low.
 - Footer with the provider button, **"Updated M/d/yy h:mm a"** and the **(i)** button.
@@ -66,7 +66,7 @@ The GitHub Actions workflow (`.github/workflows/build.yml`) generates the projec
 | `OldWeatherApp.swift` | App and scene delegate; light status bar |
 | `Models/WeatherModels.swift` | Open-Meteo responses, icon mapping, `WeatherCity` (OldOS `WeatherObserver`) |
 | `Store/WeatherStore.swift` | Cities, unit, persistence |
-| `Views/OldWeatherRootView.swift` | Pager, page dots, 3D flip |
+| `Views/OldWeatherRootView.swift` | Paging scroll view, page dots, 3D flip |
 | `Views/WeatherCardView.swift` | Day / night card, header, forecast, footer |
 | `Views/WeatherSettingsView.swift` | Settings, title bar, °F / °C control |
 | `Views/WeatherSearchView.swift` | City search |
